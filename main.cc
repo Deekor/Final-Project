@@ -28,18 +28,21 @@ int main()
   {
     boost::asio::io_service io_service;
 
-    tcp::acceptor acceptor(io_service, tcp::endpoint(tcp::v4(), 13));
+    tcp::acceptor acceptor(io_service, tcp::endpoint(tcp::v4(), 1984));
     std::cout << "Server Established" << std::endl;
 
     for (;;)
     {
       tcp::socket socket(io_service);
       acceptor.accept(socket);
+      std::cout << "Client Connection Established" << std::endl;
+
 
       std::string message = make_daytime_string();
 
       boost::system::error_code ignored_error;
-      boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
+      boost::asio::write(socket, boost::asio::buffer("Hello Dan\n"), ignored_error);
+      boost::asio::write(socket, boost::asio::buffer("Your mom!\n"), ignored_error);
     }
   }
   catch (std::exception& e)
