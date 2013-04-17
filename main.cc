@@ -43,6 +43,7 @@ int main()
       boost::system::error_code ignored_error;
       boost::asio::write(socket, boost::asio::buffer("Hello Dan\n"), ignored_error);
       boost::asio::write(socket, boost::asio::buffer("Your mom!\n"), ignored_error);
+      boost::asio::read(socket);
     }
   }
   catch (std::exception& e)
