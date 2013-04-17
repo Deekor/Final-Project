@@ -37,16 +37,13 @@ public:
   }
 
 private:
-  void handle_read(const boost::system::error_code& error,
-      size_t bytes_transferred)
+  void handle_read(const boost::system::error_code& error, size_t bytes_transferred)
   {
     if (!error)
     {
-      std::cout << "Reading" << bytes_transferred << std::endl;
-      boost::asio::async_write(socket_,
-          boost::asio::buffer(data_, bytes_transferred),
-          boost::bind(&session::handle_write, this,
-            boost::asio::placeholders::error));
+      std::cout << "Reading " << data_ << std::endl;
+      boost::asio::async_write(socket_, boost::asio::buffer(data_, bytes_transferred), boost::bind(&session::ourWriteCall, this, boost::asio::placeholders::error));
+      boost::asio::async_write(socket_, boost::asio::buffer("Second", bytes_transferred), boost::bind(&session::ourWriteCall, this, boost::asio::placeholders::error));
     }
     else
     {
@@ -58,6 +55,7 @@ private:
   {
     if (!error)
     {
+      std::cout << "Writing " << data_ << std::endl;
       socket_.async_read_some(boost::asio::buffer(data_, max_length),
           boost::bind(&session::handle_read, this,
             boost::asio::placeholders::error,
@@ -67,6 +65,11 @@ private:
     {
       delete this;
     }
+  }
+
+  void ourWriteCall(const boost::system::error_code& error)
+  {
+    std::cout << "In our write call" << std::endl;
   }
 
   tcp::socket socket_;
