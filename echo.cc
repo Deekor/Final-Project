@@ -42,7 +42,7 @@ private:
   {
     if (!error)
     {
-      std::cout << "Reading" << std::endl;
+      std::cout << "Reading" << bytes_transferred << std::endl;
       boost::asio::async_write(socket_,
           boost::asio::buffer(data_, bytes_transferred),
           boost::bind(&session::handle_write, this,
@@ -98,6 +98,7 @@ private:
   {
     if (!error)
     {
+      std::cout << "Client Connection Established" << std::endl;
       new_session->start();
     }
     else
@@ -123,7 +124,7 @@ int main(int argc, char* argv[])
     boost::asio::io_service io_service;
 
     using namespace std; // For atoi.
-    server s(io_service, atoi("1984"));
+    server s(io_service, atoi("1984")); //create a server on port 1984
 
     io_service.run();
   }
