@@ -30,10 +30,13 @@ public:
 
   void start()
   {
-    socket_.async_read_some(boost::asio::buffer(data_, max_length),
-        boost::bind(&session::handle_read, this,
-          boost::asio::placeholders::error,
-          boost::asio::placeholders::bytes_transferred));
+    // socket_.async_read_some(boost::asio::buffer(data_, max_length),
+    //     boost::bind(&session::handle_read, this,
+    //       boost::asio::placeholders::error,
+    //       boost::asio::placeholders::bytes_transferred));
+    std::string message = "HEY";
+    size_t size = 3;
+    sendMessage(message, size);
   }
 
 private:
@@ -42,7 +45,7 @@ private:
     if (!error)
     {
       std::cout << "Reading " << data_ << std::endl;
-      boost::asio::async_write(socket_, boost::asio::buffer(data_, bytes_transferred), boost::bind(&session::ourWriteCall, this, boost::asio::placeholders::error));
+      boost::asio::async_write(socket_, boost::asio::buffer(data_, bytes_transferred), boost::bind(&session::sendCallback, this, boost::asio::placeholders::error));
     }
     else
     {
@@ -51,9 +54,9 @@ private:
   }
 
   //Used to send a message to the spreadsheet
-  void sendMessage(const boost::system::error_code& error, std::string message, size_t bytes_to_transfer)
+  void sendMessage(std::string message, size_t bytes_to_transfer)
   {
-    boost::asio::async_write(socket_, boost::asio::buffer(message, bytes_to_transfer), boost::bind(&session::ourWriteCall, this, boost::asio::placeholders::error));
+    boost::asio::async_write(socket_, boost::asio::buffer(message, bytes_to_transfer), boost::bind(&session::sendCallback, this, boost::asio::placeholders::error));
   }
 
   void handle_write(const boost::system::error_code& error)
@@ -72,9 +75,10 @@ private:
     }
   }
 
-  void ourWriteCall(const boost::system::error_code& error)
+  void sendCallback(const boost::system::error_code& error)
   {
     std::cout << "In our write call" << std::endl;
+
   }
 
   tcp::socket socket_;
