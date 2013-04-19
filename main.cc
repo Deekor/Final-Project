@@ -117,6 +117,7 @@ private:
   }
 
   //Method called when a new socket connects
+  //a callback method
   void handle_accept(session* new_session,
       const boost::system::error_code& error)
   {
