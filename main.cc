@@ -43,6 +43,8 @@ public:
   }
 
 private:
+  //Callback method for everytime we read some info. Right now it just sends whatever it reads back. An echo
+  //Probably needs a new name
   void handle_read(const boost::system::error_code& error, size_t bytes_transferred)
   {
     if (!error)
@@ -62,6 +64,7 @@ private:
     boost::asio::async_write(socket_, boost::asio::buffer(message, bytes_to_transfer), boost::bind(&session::sendCallback, this, boost::asio::placeholders::error));
   }
 
+  //The old send callback method. Still here jsut for refrence, will be deleted when we dont need it anymore.
   void handle_write(const boost::system::error_code& error)
   {
     if (!error)
@@ -78,6 +81,7 @@ private:
     }
   }
 
+  //this method is called each time we send a message.
   void sendCallback(const boost::system::error_code& error)
   {
     std::cout << "In our write call" << std::endl;
@@ -105,19 +109,22 @@ public:
 private:
   void start_accept()
   {
+    //Create a new session with the socket that connects
     session* new_session = new session(io_service_);
     acceptor_.async_accept(new_session->socket(),
         boost::bind(&server::handle_accept, this, new_session,
           boost::asio::placeholders::error));
   }
 
+  //Method called when a new socket connects
   void handle_accept(session* new_session,
       const boost::system::error_code& error)
   {
     if (!error)
     {
+      //Client has connected
       std::cout << "Client Connection Established" << std::endl;
-      new_session->start();
+      new_session->start(); //start the session
     }
     else
     {
