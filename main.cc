@@ -15,6 +15,9 @@
 
 using boost::asio::ip::tcp;
 
+//-------------------------//
+//-------- SESSION --------//
+//-------------------------//
 class session
 {
 public:
@@ -86,6 +89,9 @@ private:
   char data_[max_length];
 };
 
+//-------------------------//
+//-------- SERVER ---------//
+//-------------------------//
 class server
 {
 public:
@@ -125,6 +131,9 @@ private:
   tcp::acceptor acceptor_;
 };
 
+//-------------------------//
+//-------- MAIN -----------//
+//-------------------------//
 int main(int argc, char* argv[])
 {
   try
