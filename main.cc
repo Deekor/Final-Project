@@ -14,7 +14,11 @@
 #include <boost/asio.hpp>
 #include <vector>
 #include <fstream>
+#include <sstream>
 #include <map>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/xml_parser.hpp>
+#include <boost/foreach.hpp>
 
 using boost::asio::ip::tcp;
 
@@ -30,8 +34,10 @@ class server
     server(boost::asio::io_service& io_service, short port);
 
     bool createSpreadsheet(session* session, std::string name, std::string password);
-    bool joinSpreadsheet(session* session, std::string name, std::string password);
+    int joinSpreadsheet(session* session, std::string name, std::string password);
     bool leaveSpreadsheet(session* session, std::string spreadsheetname);
+    bool saveSheet(std::string name);
+    std::string getXML(std::string name);
   
   private:
     void start_accept();
@@ -119,7 +125,7 @@ private:
 
         for(int i = startpassfor + 11; i <= bytes_transferred; i++)
         {
-          if(data_[i] == '\\' && data_[i+1] == 'n')
+          if(data_[i] == '\n')
             break;
           pswd += data_[i];
         }
@@ -147,25 +153,29 @@ private:
       {
         std::string name = "";
         std::string pswd = "";
+        std::string xml = "";
+        int length = 0;
+
         int startpassfor;
 
         for(int i =10; i <= bytes_transferred; i++)
         {
-          if(data_[i] == '\\' && data_[i+1] == 'n')
+          if(data_[i] == '\n')
             break;
           name += data_[i];
           startpassfor = i;
         }
 
-        for(int i = startpassfor + 12; i <= bytes_transferred; i++)
+        for(int i = startpassfor + 11; i <= bytes_transferred; i++)
         {
-          if(data_[i] == '\\' && data_[i+1] == 'n')
+          if(data_[i] == '\n')
             break;
           pswd += data_[i];
         }
 
+        int version = ser->joinSpreadsheet(this, name, pswd);
 
-        if(!ser->joinSpreadsheet(this, name, pswd)) //if it failed to create
+        if(version == -1) //if it failed to create
         {
           mess = "JOIN FAIL\nName:" + name +"\nA spreadsheet with that name doesn't exist.\n";
           std::cout << "mess is: " << mess << std::endl;
@@ -173,9 +183,12 @@ private:
         }
         else
         {
-          spreadsheetname = name;
-          std::cout << "mess is: " << mess << std::endl;
-          mess = "JOIN OK\nName:" + name +"\nVersion:" + pswd +"\n";
+          xml = ser->getXML(name);
+          length = xml.size();
+
+          std::ostringstream s;
+          s << "JOIN OK\nName:" << name << "\nVersion:" << version << "\nLength:" << length << "\n" << xml << "\n"; //build the string to return (becuase of ints).
+          mess = s.str();
           sendMessage(mess, mess.size());
         }
       }
@@ -194,7 +207,20 @@ private:
       //SAVE MESSAGE
       else if (data_[1] == 'A')
       {
-        mess = "Save has been called";
+
+        std::string name = "";
+
+        for(int i =11; i <= bytes_transferred; i++)
+        {
+          if(data_[i] == '\n')
+            break;
+          name += data_[i];
+        }
+
+        if(ser->saveSheet(name))
+          mess = "SAVE OK\nName:" + name + "\n";
+        else
+          mess = "SAVE FAIL\nName:" + name + "\nThe save failed because..." + "\n";
         sendMessage(mess, mess.size());
       }
       //LEAVE MESSAGE
@@ -282,7 +308,7 @@ public:
       this->password = password;
       version = 0;
 
-      //Check if the spreadsheet already exists
+      //Check if the spreadsheet already exists, if not create one
       if ( (ifs.rdstate() & std::ifstream::failbit ) != 0 )
       {
         //Spreadsheet doesnt exist, create one
@@ -347,23 +373,58 @@ private:
   }
 
   //Join a session to spreadsheet.
-  bool server::joinSpreadsheet(session* session, std::string name, std::string password)
+  int server::joinSpreadsheet(session* session, std::string name, std::string password)
   {
-    bool found = false;
+    int found = -1;
+
+    //check all spreadsheets in memory
     for(int i = 0; i < spreadsheets.size(); i++)
     {
       if(spreadsheets.at(i).name == name) //spread sheet already exists
         {
-          found = true;
+          found = spreadsheets.at(i).version;
           spreadsheets.at(i).linkSession(session);
         }
     }
-    if(!found) //create a spreadsheet
+    //No spreadsheet in memory, check files
+    if(found < 0)
     {
-      //send fail
-      return false;
+      std::ifstream ifs;
+      std::string filename = std::string("ss/") + name + ".xml";
+      ifs.open (&filename[0], std::ifstream::in);
+      //Check if the spreadsheet file already exists
+      if ( (ifs.rdstate() & std::ifstream::failbit ) != 0 )
+      {
+        //doesnt exist return false
+        ifs.close();
+        return -1;
+      }
+      else //found the file open it and join the session
+      {
+        //create a spreadsheet and link it
+        spreadsheet * spr = new spreadsheet(name, password);
+        spr->linkSession(session);
+
+        //read the xml
+        boost::property_tree::ptree pt;
+        std::string filename = "ss/"+ name + ".xml";
+        read_xml(filename, pt);
+
+        //for each the pt and add to the spreadsheet map
+        BOOST_FOREACH(const boost::property_tree::ptree::value_type &v, pt.get_child("spreadsheet")) 
+        {
+          std::string name2 = v.second.get<std::string>("name");
+          std::string contents = v.second.get<std::string>("contents");
+          spr->cells.insert(std::pair<std::string, std::string>(name2, contents));
+        }
+
+        //place spreadsheet into memory
+        spreadsheets.push_back(*spr);
+        return spr->version;
+      }
+
     }
-    return true;
+    return found;
   }
  
   bool server::leaveSpreadsheet(session* session, std::string spreadsheetname)
@@ -377,6 +438,59 @@ private:
         }
     }
     return false;
+  }
+
+  bool server::saveSheet(std::string spreadsheetname)
+  {
+    boost::property_tree::ptree pt;
+    
+
+    for(int i = 0; i < spreadsheets.size(); i++)
+    {
+      if(spreadsheets.at(i).name == spreadsheetname) //spread sheet already exists
+        {
+          std::map<std::string, std::string>::iterator it;
+          for(it=spreadsheets.at(i).cells.begin(); it!=spreadsheets.at(i).cells.end(); ++it)
+          {
+            boost::property_tree::ptree pt1;
+            pt1.put("name", it->first);
+            pt1.put("contents", it->second);
+
+            pt.add_child("spreadsheet.cell", pt1);
+          }
+
+          //write the file
+          std::string filename = "" + spreadsheetname + ".xml";
+          write_xml(filename, pt);
+          
+        }
+    }
+
+
+  }
+
+  std::string server::getXML(std::string name)
+  {
+    for(int i = 0; i < spreadsheets.size(); i++)
+    {
+      if(spreadsheets.at(i).name == name) //spread sheet already exists
+        {
+          std::map<std::string, std::string>::iterator it;
+          std::ostringstream s;
+          s << "<?xml version=\"1.0\" encoding=\"UTF-8\"?><spreadsheet>";
+          for(it=spreadsheets.at(i).cells.begin(); it!=spreadsheets.at(i).cells.end(); ++it)
+          {
+            s << "<cell>";
+            s << "<name>" << it->first << "</name>";
+            s << "<contents>" << it->second << "</contents>";
+            s << "</cell>";
+          }
+          s << "</spreadsheet>";
+
+          return s.str();
+          
+        }
+    }
   }
 
   void server::start_accept()
