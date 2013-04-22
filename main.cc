@@ -59,10 +59,15 @@ class server
 class session
 {
 public:
+
+  std::string spreadsheetname;
+  bool ableToLeave;
+
   session(boost::asio::io_service& io_service, server * server)
     : socket_(io_service)
   {
     ser = server;
+    ableToLeave = true;
   }
 
   tcp::socket& socket()
@@ -98,14 +103,16 @@ private:
   {
     
     //leave or disconnect
-    if(bytes_transferred < 1 || data_[3] == 'V')
+    if((bytes_transferred < 1 || data_[3] == 'V') && ableToLeave)
     {
         ser->leaveSpreadsheet(this, spreadsheetname);
         socket_.close();
+        ableToLeave = false;
     }
     std::string mess = "";
     if (!error)
     {
+      std::cout << "message received is: " << data_ << std::endl;
         //std::cout << "Reading " << data_ << std::endl;
         //boost::asio::async_write(socket_, boost::asio::buffer(data_, bytes_transferred), boost::bind(&session::sendCallback, this, boost::asio::placeholders::error));
         
@@ -124,10 +131,6 @@ private:
         
         //std::cout << "Received: " << data_ << std::endl;
         
-        for(int i = 0; i <=bytes_transferred; i++)
-        {
-			std::cout << data_[i] << " ";
-        }
         
 
         for(int i = 12; i <=bytes_transferred; i++)
@@ -194,13 +197,13 @@ private:
         if(version == -1) //if it failed to create
         {
           mess = "JOIN FAIL\nName:" + name +"\nA spreadsheet with that name doesn't exist.\n";
-          std::cout << "mess is: " << mess << std::endl;
+          //std::cout << "mess is: " << mess << std::endl;
           sendMessage(mess, mess.size());
         }
         else if(version == -2) //found a spreadsheet, but passwords didnt match
         {
           mess = "JOIN FAIL\nName:" + name +"\nThe password for that spreadsheet was incorrect.\n";
-          std::cout << "mess is: " << mess << std::endl;
+          //std::cout << "mess is: " << mess << std::endl;
           sendMessage(mess, mess.size());
         }
         else
@@ -263,7 +266,7 @@ private:
             break;
           content += data_[i];
         }
-      std::cout << "message received is: " << data_ << std::endl;
+      
       
       if(ser->makeChange(name, atoi(version.c_str()), cell, content, length))
       {
@@ -272,13 +275,13 @@ private:
         std::string mess2 = mess.str();
         sendMessage(mess2, mess2.size());
         ser->sendChange(name, atoi(version.c_str())+1, cell, content, length);
-        std::cout << "change ok"<< std::endl;
+        //std::cout << "change ok"<< std::endl;
       }
       else
       {
         mess = "CHANGE FAIL";
         sendMessage(mess, mess.size());
-        std::cout << "change fail "<< std::endl;
+        //std::cout << "change fail "<< std::endl;
       }
       }
       //UNDO MESSAGE
@@ -353,7 +356,7 @@ private:
   tcp::socket socket_;
   enum { max_length = 1024 };
   char data_[max_length];
-  std::string spreadsheetname;
+  
 };
 
 //-------------------------//
@@ -381,6 +384,7 @@ public:
   }
   bool linkSession(session* s)
   {
+      s->spreadsheetname = name;
       sessions.push_back(s);
       return true;
   }
@@ -514,11 +518,19 @@ private:
     std::cout << "Leave Requested"<< std::endl;
     for(int i = 0; i < spreadsheets.size(); i++)
     {
+       std::cout << "Size of the vecor is " << spreadsheets.at(i).sessions.size() << std::endl;
       if(spreadsheets.at(i).name == spreadsheetname) //spread sheet already exists
         {
-          spreadsheets.erase(spreadsheets.begin()+i);
-          return true;
+          std::cout << "In erase i is " << i << std::endl;
+          spreadsheets.at(i).sessions.erase(spreadsheets.at(i).sessions.begin()+i); 
         }
+        std::cout << "Size of the vecor after erase is " << spreadsheets.at(i).sessions.size() << std::endl;
+        if(spreadsheets.at(i).sessions.empty())//no one else connected, save it
+        {
+          std::cout << "Everyone is disconnected, saving " << spreadsheetname << std::endl;
+          saveSheet(spreadsheetname);
+        }
+        return true;
     }
     return false;
   }
@@ -606,22 +618,22 @@ private:
   
   bool server::makeChange(std::string name, int version, std::string cell, std::string content, std::string length)
   {
-    std::cout << "makechange method "  << cell<< std::endl;
+    //std::cout << "makechange method "  << cell<< std::endl;
   for(int i = 0; i < spreadsheets.size(); i++)
     {
       if(spreadsheets.at(i).name == name && spreadsheets.at(i).version == version ) //spread sheet already exists
         {
-      std::cout << "name is: " << spreadsheets.at(i).name << std::endl;
-      std::cout << "version is: " << spreadsheets.at(i).version << std::endl;
+      //std::cout << "name is: " << spreadsheets.at(i).name << std::endl;
+      //std::cout << "version is: " << spreadsheets.at(i).version << std::endl;
           
           
           std::map<std::string, std::string>::iterator it;
           for(it = spreadsheets.at(i).cells.begin(); it != spreadsheets.at(i).cells.end(); ++it)
           {
-        std::cout << "cell names: " << it->first << std::endl;
+        //std::cout << "cell names: " << it->first << std::endl;
         if(it->first == cell)
         {
-          std::cout << "found cell name: " << it->first << std::endl;
+          //std::cout << "found cell name: " << it->first << std::endl;
         it->second = content;
         spreadsheets.at(i).version++;
         return true;
