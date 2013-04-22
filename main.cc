@@ -96,6 +96,13 @@ private:
   //Probably needs a new name
   void handle_read(const boost::system::error_code& error, size_t bytes_transferred)
   {
+    
+    //leave or disconnect
+    if(bytes_transferred < 1 || data_[3] == 'V')
+    {
+        ser->leaveSpreadsheet(this, spreadsheetname);
+        socket_.close();
+    }
     std::string mess = "";
     if (!error)
     {
@@ -260,16 +267,18 @@ private:
       
       if(ser->makeChange(name, atoi(version.c_str()), cell, content, length))
       {
-      mess = "CHANGE OK\nName:" + name + "\nVersion:" + version + "\n";
-      sendMessage(mess, mess.size());
-      ser->sendChange(name, atoi(version.c_str())+1, cell, content, length);
-      std::cout << "change ok"<< std::endl;
+        std::ostringstream mess;
+        mess << "CHANGE OK\nName:" << name << "\nVersion:" << atoi(version.c_str())+1 << "\n";
+        std::string mess2 = mess.str();
+        sendMessage(mess2, mess2.size());
+        ser->sendChange(name, atoi(version.c_str())+1, cell, content, length);
+        std::cout << "change ok"<< std::endl;
       }
       else
       {
-      mess = "CHANGE FAIL";
-      sendMessage(mess, mess.size());
-      std::cout << "change fail "<< std::endl;
+        mess = "CHANGE FAIL";
+        sendMessage(mess, mess.size());
+        std::cout << "change fail "<< std::endl;
       }
       }
       //UNDO MESSAGE
@@ -284,7 +293,7 @@ private:
 
         std::string name = "";
 
-        for(int i =11; i <= bytes_transferred; i++)
+        for(int i =10; i <= bytes_transferred; i++)
         {
           if(data_[i] == '\n')
             break;
@@ -295,14 +304,6 @@ private:
           mess = "SAVE OK\nName:" + name + "\n";
         else
           mess = "SAVE FAIL\nName:" + name + "\nThe save failed because..." + "\n";
-        sendMessage(mess, mess.size());
-      }
-      //LEAVE MESSAGE
-      else if (data_[3] == 'V')
-      {
-        ser->leaveSpreadsheet(this, spreadsheetname);
-        mess = "Leave has been called";
-        socket_.close();
         sendMessage(mess, mess.size());
       }
       else
@@ -372,30 +373,11 @@ public:
   spreadsheet(std::string name, std::string password)
   {
       std::ifstream ifs;
-      std::string filename = std::string("ss/") + name + ".txt";
+      std::string filename = std::string("ss/") + name + ".xml";
       ifs.open (&filename[0], std::ifstream::in);
       this->name = name;
       this->password = password;
       version = 0;
-
-      //Check if the spreadsheet already exists, if not create one
-      if ( (ifs.rdstate() & std::ifstream::failbit ) != 0 )
-      {
-        //Spreadsheet doesnt exist, create one
-        std::ofstream ofs; 
-        ofs.open (&filename[0], std::ofstream::out | std::ofstream::app);
-        ofs << "PASS " << password << std::endl;
-        ofs << "I wish I had Jeff's PPI";
-        ofs.close();
-      }
-      else
-      {
-        //if the file does exist, Open it.
-
-
-      }
-      
-      ifs.close();
   }
   bool linkSession(session* s)
   {
@@ -529,6 +511,7 @@ private:
  
   bool server::leaveSpreadsheet(session* session, std::string spreadsheetname)
   {
+    std::cout << "Leave Requested"<< std::endl;
     for(int i = 0; i < spreadsheets.size(); i++)
     {
       if(spreadsheets.at(i).name == spreadsheetname) //spread sheet already exists
@@ -544,6 +527,7 @@ private:
   {
     boost::property_tree::ptree pt;
     
+    std::cout << "Save request for " << spreadsheetname << std::endl;
 
     for(int i = 0; i < spreadsheets.size(); i++)
     {
@@ -561,7 +545,7 @@ private:
           }
 
           //write the file
-          std::string filename = "" + spreadsheetname + ".xml";
+          std::string filename = "SS/" + spreadsheetname + ".xml";
           write_xml(filename, pt);
           
         }
@@ -606,12 +590,12 @@ private:
           
           for(int i = 0 ; i < temp.sessions.size(); i++)
           {
-      std::ostringstream s;
-      s << "UPDATE\nName:" << name << "\nVersion:" << version << "\nCell:" << cell <<"\nLength:" <<length << "\n" << content << "\n"; //build the string to return (because of ints).
-      std::string mess = s.str();
-        
-        temp.sessions.at(i)->sendMessage(mess, mess.size());
-      }
+            std::ostringstream s;
+            s << "UPDATE\nName:" << name << "\nVersion:" << version << "\nCell:" << cell <<"\nLength:" <<length << "\n" << content << "\n"; //build the string to return (because of ints).
+            std::string mess = s.str();
+              
+            temp.sessions.at(i)->sendMessage(mess, mess.size());
+          }
       rtn = "OK";
           
         }
