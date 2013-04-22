@@ -26,22 +26,19 @@ int main(int argc, char const *argv[])
     pt.add_child("spreadsheet.cell", pt1);
     pt.add_child("spreadsheet.cell", pt2);
     pt.add_child("spreadsheet.cell", pt3);
+    pt.put("spreadsheet.meta.password", "boobs");
 
     write_xml("output.xml", pt);
 
     BOOST_FOREACH(const boost::property_tree::ptree::value_type &v, pt.get_child("spreadsheet")) 
     {
-       string name = v.second.get<string>("contents");
-       cout << name << endl;
-    }
-        BOOST_FOREACH(const boost::property_tree::ptree::value_type &v, pt.get_child("spreadsheet")) 
-    {
-        if(v.second.get<string>("contents") == "a2")
+        if(v.first == "meta")
         {
-            v.second.put_child("contents", "I love ya");
+            string name = v.second.get<string>("password");
+            cout << name << endl;
         }
-      
     }
+ 
 	
 	return 0;
 }

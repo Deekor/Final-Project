@@ -1,0 +1,21 @@
+#####################
+##TESTING CHECKLIST##
+#####################
+
+[]Create a new spreadsheet, does it create a file?
+[]Create a new spreadsheet, does it not create if a spreadsheet
+  with that name already exists?
+[x]Join a spreadsheet from file. Passes authentication.
+[x]Join a spreadsheet from memory, Passes authentication.
+[]Changes propigate to all connected clients?
+[]verions increment on change?
+[]Out of sync error (versions don't match)
+[]Undo changes propigate to all clients?
+[]Undos in the correct order?
+[]Save changes to file?
+[]Leave closes connection?
+[]Leave deletes session out of vector?
+[]Unrecognized commands send an "ERROR" back to client?
+[]Detect all clients disconnet and save the changes.
+[]Detect client disconnect and delete session object.
+[]Clear undo stack on save.

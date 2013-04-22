@@ -38,6 +38,9 @@ class server
     bool leaveSpreadsheet(session* session, std::string spreadsheetname);
     bool saveSheet(std::string name);
     std::string getXML(std::string name);
+     std::string sendChange(std::string name, int version, std::string cell, std::string content, std::string length);
+    bool makeChange(std::string name, int version, std::string cell, std::string content, std::string length);
+
   
   private:
     void start_accept();
@@ -77,6 +80,12 @@ public:
     // std::string message = "HEY";
     // size_t size = 3;
     // sendMessage(message, size);
+  }
+
+    //Used to send a message to the spreadsheet
+  void sendMessage(std::string message, size_t bytes_to_transfer)
+  {
+    boost::asio::async_write(socket_, boost::asio::buffer(message, bytes_to_transfer), boost::bind(&session::sendCallback, this, boost::asio::placeholders::error));
   }
 
 private:
@@ -181,6 +190,12 @@ private:
           std::cout << "mess is: " << mess << std::endl;
           sendMessage(mess, mess.size());
         }
+        else if(version == -2) //found a spreadsheet, but passwords didnt match
+        {
+          mess = "JOIN FAIL\nName:" + name +"\nThe password for that spreadsheet was incorrect.\n";
+          std::cout << "mess is: " << mess << std::endl;
+          sendMessage(mess, mess.size());
+        }
         else
         {
           xml = ser->getXML(name);
@@ -195,8 +210,67 @@ private:
       //CHANGE MESSAGE
       else if (data_[1] == 'H')
       {
-        mess = "Change has been called";
-        sendMessage(mess, mess.size());
+        std::string name = "";
+        std::string cell = "";
+        std::string content = "";
+        std::string length = "";
+        std::string version = "";
+        int startpassfor = 0;
+        
+    for(int i = 12; i <= bytes_transferred; i++)
+        {
+      //std::cout << data_[i] << " ";
+          if(data_[i] == '\n')
+            break;
+          name += data_[i];
+          startpassfor = i;
+        }
+
+        for(int i = startpassfor + 10; i <= bytes_transferred; i++)
+        {
+          if(data_[i] == '\n')
+            break;
+          version += data_[i];
+          startpassfor = i;
+        }
+        
+        for(int i = startpassfor + 7; i <= bytes_transferred; i++)
+        {
+          if(data_[i] == '\n')
+            break;
+          cell += data_[i];
+          startpassfor = i;
+        }
+        
+        for(int i = startpassfor + 9; i <= bytes_transferred; i++)
+        {
+          if(data_[i] == '\n')
+            break;
+          length += data_[i];
+          startpassfor = i;
+        }
+        
+        for(int i = startpassfor + 2; i <= bytes_transferred; i++)
+        {
+          if(data_[i] == '\n')
+            break;
+          content += data_[i];
+        }
+      std::cout << "message received is: " << data_ << std::endl;
+      
+      if(ser->makeChange(name, atoi(version.c_str()), cell, content, length))
+      {
+      mess = "CHANGE OK\nName:" + name + "\nVersion:" + version + "\n";
+      sendMessage(mess, mess.size());
+      ser->sendChange(name, atoi(version.c_str())+1, cell, content, length);
+      std::cout << "change ok"<< std::endl;
+      }
+      else
+      {
+      mess = "CHANGE FAIL";
+      sendMessage(mess, mess.size());
+      std::cout << "change fail "<< std::endl;
+      }
       }
       //UNDO MESSAGE
       else if (data_[1] == 'N')
@@ -250,11 +324,7 @@ private:
     }
   }
 
-  //Used to send a message to the spreadsheet
-  void sendMessage(std::string message, size_t bytes_to_transfer)
-  {
-    boost::asio::async_write(socket_, boost::asio::buffer(message, bytes_to_transfer), boost::bind(&session::sendCallback, this, boost::asio::placeholders::error));
-  }
+
 
   //The old send callback method. Still here jsut for refrence, will be deleted when we dont need it anymore.
   void handle_write(const boost::system::error_code& error)
@@ -353,7 +423,7 @@ private:
     bool found = false;
     for(int i = 0; i < spreadsheets.size(); i++)
     {
-      if(spreadsheets.at(i).name == name) //spread sheet already exists
+      if(spreadsheets.at(i).name == name) //spread sheet already exists in memory
         {
           found = true;
 
@@ -362,7 +432,6 @@ private:
     if(!found) //create a spreadsheet
     {
       spreadsheet * spr = new spreadsheet(name, password);
-      spr->linkSession(session);
       spreadsheets.push_back(*spr);
     }
     else
@@ -382,8 +451,18 @@ private:
     {
       if(spreadsheets.at(i).name == name) //spread sheet already exists
         {
-          found = spreadsheets.at(i).version;
-          spreadsheets.at(i).linkSession(session);
+          //check the password
+          if(spreadsheets.at(i).password == password)
+          {
+            //passwords match
+            found = spreadsheets.at(i).version;
+            spreadsheets.at(i).linkSession(session);
+          }
+          else
+          {
+            //passwords don't match.
+            return -2;
+          }
         }
     }
     //No spreadsheet in memory, check files
@@ -403,19 +482,40 @@ private:
       {
         //create a spreadsheet and link it
         spreadsheet * spr = new spreadsheet(name, password);
-        spr->linkSession(session);
+
 
         //read the xml
         boost::property_tree::ptree pt;
         std::string filename = "ss/"+ name + ".xml";
         read_xml(filename, pt);
+        std::cout << "About to check the password" << std::endl;
+        //need to check the password before we link the session
+        BOOST_FOREACH(const boost::property_tree::ptree::value_type &v, pt.get_child("spreadsheet")) 
+        {
+          if(v.first == "meta")
+          {
+            if(password != v.second.get<std::string>("password"))
+            {
+              //passwords dont match
+              return -2;
+            }
+          }
+        }
+        std::cout << "Passed the password check" << std::endl;
 
+        //link the session
+        spr->linkSession(session);
+
+        std::cout << "Populating the tree" << std::endl;
         //for each the pt and add to the spreadsheet map
         BOOST_FOREACH(const boost::property_tree::ptree::value_type &v, pt.get_child("spreadsheet")) 
         {
-          std::string name2 = v.second.get<std::string>("name");
-          std::string contents = v.second.get<std::string>("contents");
-          spr->cells.insert(std::pair<std::string, std::string>(name2, contents));
+          if(v.first == "cell")
+          {
+            std::string name2 = v.second.get<std::string>("name");
+            std::string contents = v.second.get<std::string>("contents");
+            spr->cells.insert(std::pair<std::string, std::string>(name2, contents));
+          }
         }
 
         //place spreadsheet into memory
@@ -457,6 +557,7 @@ private:
             pt1.put("contents", it->second);
 
             pt.add_child("spreadsheet.cell", pt1);
+            pt.put("spreadsheet.meta.password", spreadsheets.at(i).password);
           }
 
           //write the file
@@ -491,6 +592,68 @@ private:
           
         }
     }
+  }
+
+   std::string server::sendChange(std::string name, int version, std::string cell, std::string content, std::string length)
+  {
+    std::cout << "sendchange method "<< std::endl;
+    std::string rtn = "FAIL";
+  for(int i = 0; i < spreadsheets.size(); i++)
+    {
+      if(spreadsheets.at(i).name == name) //spread sheet already exists
+        {
+          spreadsheet temp = spreadsheets.at(i);
+          
+          for(int i = 0 ; i < temp.sessions.size(); i++)
+          {
+      std::ostringstream s;
+      s << "UPDATE\nName:" << name << "\nVersion:" << version << "\nCell:" << cell <<"\nLength:" <<length << "\n" << content << "\n"; //build the string to return (because of ints).
+      std::string mess = s.str();
+        
+        temp.sessions.at(i)->sendMessage(mess, mess.size());
+      }
+      rtn = "OK";
+          
+        }
+    }
+    
+    return rtn;
+  }
+  
+  bool server::makeChange(std::string name, int version, std::string cell, std::string content, std::string length)
+  {
+    std::cout << "makechange method "  << cell<< std::endl;
+  for(int i = 0; i < spreadsheets.size(); i++)
+    {
+      if(spreadsheets.at(i).name == name && spreadsheets.at(i).version == version ) //spread sheet already exists
+        {
+      std::cout << "name is: " << spreadsheets.at(i).name << std::endl;
+      std::cout << "version is: " << spreadsheets.at(i).version << std::endl;
+          
+          
+          std::map<std::string, std::string>::iterator it;
+          for(it = spreadsheets.at(i).cells.begin(); it != spreadsheets.at(i).cells.end(); ++it)
+          {
+        std::cout << "cell names: " << it->first << std::endl;
+        if(it->first == cell)
+        {
+          std::cout << "found cell name: " << it->first << std::endl;
+        it->second = content;
+        spreadsheets.at(i).version++;
+        return true;
+        }
+          }
+          
+          spreadsheets.at(i).cells.insert(std::pair<std::string, std::string>(cell, content));
+          spreadsheets.at(i).version++;
+      return true;
+          
+          
+        }
+        return false;
+    }
+    
+  return false;
   }
 
   void server::start_accept()
