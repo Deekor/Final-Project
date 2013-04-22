@@ -63,6 +63,7 @@ public:
 
   void start()
   {
+  memset(data_,'\0',max_length);
     socket_.async_read_some(boost::asio::buffer(data_, max_length),
         boost::bind(&session::handle_read, this,
           boost::asio::placeholders::error,
@@ -85,7 +86,7 @@ private:
     {
         //std::cout << "Reading " << data_ << std::endl;
         //boost::asio::async_write(socket_, boost::asio::buffer(data_, bytes_transferred), boost::bind(&session::sendCallback, this, boost::asio::placeholders::error));
-        std::cout << "Received " << data_ << std::endl;
+        
 
       //The Following if statements are for message handling.
       
@@ -97,32 +98,47 @@ private:
         std::string name = "";
         std::string pswd = "";
         int startpassfor;
-
-        for(int i =13; i <=bytes_transferred; i++)
+        
+        
+        //std::cout << "Received: " << data_ << std::endl;
+        
+        for(int i = 0; i <=bytes_transferred; i++)
         {
-          if(data_[i] == '\\' && data_[i+1] == 'n')
+			std::cout << data_[i] << " ";
+        }
+        
+
+        for(int i = 12; i <=bytes_transferred; i++)
+        {
+			//std::cout << data_[i] << " ";
+          if(data_[i] == '\n')
             break;
           name += data_[i];
           startpassfor = i;
         }
 
-        for(int i = startpassfor + 12; i <= bytes_transferred; i++)
+        for(int i = startpassfor + 11; i <= bytes_transferred; i++)
         {
           if(data_[i] == '\\' && data_[i+1] == 'n')
             break;
           pswd += data_[i];
         }
+		//std::cout << "name is: " <<name << std::endl;
+		//std::cout << "pass is: " <<pswd << std::endl;
 
 
         if(!ser->createSpreadsheet(this, name, pswd)) //if it failed to create
         {
           mess = "CREATE FAIL\nName:" + name +"\nA spreadsheet with that name already exists\n";
+          		//std::cout << "mess is: " << mess << std::endl;
+
           sendMessage(mess, mess.size());
         }
         else
         {
           spreadsheetname = name;
           mess = "CREATE OK\nName:" + name +"\nPassword:" + pswd +"\n";
+          //std::cout << "mess is: " << mess << std::endl;
           sendMessage(mess, mess.size());
         }
       }
@@ -133,7 +149,7 @@ private:
         std::string pswd = "";
         int startpassfor;
 
-        for(int i =11; i <= bytes_transferred; i++)
+        for(int i =10; i <= bytes_transferred; i++)
         {
           if(data_[i] == '\\' && data_[i+1] == 'n')
             break;
@@ -152,11 +168,13 @@ private:
         if(!ser->joinSpreadsheet(this, name, pswd)) //if it failed to create
         {
           mess = "JOIN FAIL\nName:" + name +"\nA spreadsheet with that name doesn't exist.\n";
+          std::cout << "mess is: " << mess << std::endl;
           sendMessage(mess, mess.size());
         }
         else
         {
           spreadsheetname = name;
+          std::cout << "mess is: " << mess << std::endl;
           mess = "JOIN OK\nName:" + name +"\nVersion:" + pswd +"\n";
           sendMessage(mess, mess.size());
         }
@@ -192,6 +210,9 @@ private:
         mess = "ERROR\n";
         sendMessage(mess, mess.size());
       }
+      
+      memset(data_,'\0',max_length);
+      
       socket_.async_read_some(boost::asio::buffer(data_, max_length),
         boost::bind(&session::handle_read, this,
           boost::asio::placeholders::error,
@@ -229,8 +250,7 @@ private:
   //this method is called each time we send a message.
   void sendCallback(const boost::system::error_code& error)
   {
-    std::cout << "In our write call" << std::endl;
-
+	  
   }
 
   tcp::socket socket_;
