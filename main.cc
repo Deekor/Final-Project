@@ -39,7 +39,7 @@ class server
     bool leaveSpreadsheet(session* session, std::string spreadsheetname);
     bool saveSheet(std::string name);
     std::string getXML(std::string name);
-     std::string sendChange(std::string name, int version, std::string cell, std::string content, std::string length);
+    std::string sendChange(std::string name, int version, std::string cell, std::string content, std::string length,session* session);
     int makeChange(std::string name, int version, std::string cell, std::string content, std::string length);
     std::pair<std::string, std::string> undo(session* session, std::string spreadsheetname, std::string version);
 
@@ -277,7 +277,7 @@ private:
         mess << "CHANGE OK\nName:" << name << "\nVersion:" << atoi(version.c_str())+1 << "\n";
         std::string mess2 = mess.str();
         sendMessage(mess2, mess2.size());
-        ser->sendChange(name, atoi(version.c_str())+1, cell, content, length);
+        ser->sendChange(name, atoi(version.c_str())+1, cell, content, length, this);
         //std::cout << "change ok"<< std::endl;
       }
       else if(change == 0)
@@ -661,7 +661,7 @@ private:
     }
   }
 
-   std::string server::sendChange(std::string name, int version, std::string cell, std::string content, std::string length)
+   std::string server::sendChange(std::string name, int version, std::string cell, std::string content, std::string length, session *s)
   {
     std::cout << "sendchange method "<< std::endl;
     std::string rtn = "FAIL";
@@ -673,12 +673,16 @@ private:
           
           for(int j = 0 ; j < spreadsheets.at(i).sessions.size(); j++)
           {
-            std::ostringstream s;
-            s << "UPDATE\nName:" << name << "\nVersion:" << version << "\nCell:" << cell <<"\nLength:" <<length << "\n" << content << "\n"; //build the string to return (because of ints).
-            std::string mess = s.str();
+            if(spreadsheets.at(i).sessions.at(j)!= s)
+            {
+              //if()
+              std::ostringstream s;
+              s << "UPDATE\nName:" << name << "\nVersion:" << version << "\nCell:" << cell <<"\nLength:" <<length << "\n" << content << "\n"; //build the string to return (because of ints).
+              std::string mess = s.str();
               
-            spreadsheets.at(i).sessions.at(j)->sendMessage(mess, mess.size());
-          }
+              spreadsheets.at(i).sessions.at(j)->sendMessage(mess, mess.size());
+            }
+        }
       rtn = "OK";
           
         }
@@ -711,7 +715,9 @@ private:
         {
           if(content == "")
           {
+            spreadsheets.at(i).undoStack.push(std::pair<std::string, std::string>(it->first, it->second));
             spreadsheets.at(i).cells.erase(cell);
+            spreadsheets.at(i).version++;
             return 1;
           }
           spreadsheets.at(i).undoStack.push(std::pair<std::string, std::string>(it->first, it->second));
@@ -720,11 +726,11 @@ private:
           return 1;
         }
       }
-          //else insert it
-          spreadsheets.at(i).undoStack.push(std::pair<std::string, std::string>(cell, ""));
-          spreadsheets.at(i).cells.insert(std::pair<std::string, std::string>(cell, content));
-          spreadsheets.at(i).version++;
-          return 1;      
+      //else insert it
+      spreadsheets.at(i).undoStack.push(std::pair<std::string, std::string>(cell, ""));
+      spreadsheets.at(i).cells.insert(std::pair<std::string, std::string>(cell, content));
+      spreadsheets.at(i).version++;
+      return 1;      
     }
 
     }
@@ -751,7 +757,28 @@ private:
         {
           std::pair<std::string, std::string> change = spreadsheets.at(i).undoStack.top();
           spreadsheets.at(i).undoStack.pop();
+
+          //update it in the map
+          std::map<std::string, std::string>::iterator it;
+          for(it = spreadsheets.at(i).cells.begin(); it != spreadsheets.at(i).cells.end(); ++it)
+          {
+            if(it->first == change.first)
+            {
+              if(change.second == "")
+              {
+                spreadsheets.at(i).cells.erase(change.first);
+              }
+              else
+              {
+              it->second = change.second;
+              }
+            }
+          }
+
           spreadsheets.at(i).version++;
+          std::ostringstream length;
+          length << change.second.size();
+          sendChange(spreadsheetname, spreadsheets.at(i).version, change.first, change.second, length.str(), session);
           return change;
         }
       }
