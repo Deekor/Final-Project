@@ -766,6 +766,7 @@ private:
               if(change.second == "")
               {
                 spreadsheets.at(i).cells.erase(change.first);
+                break;
               }
               else
               {
