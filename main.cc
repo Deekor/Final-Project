@@ -19,6 +19,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/foreach.hpp>
+#include <stack>
 
 using boost::asio::ip::tcp;
 
@@ -39,7 +40,8 @@ class server
     bool saveSheet(std::string name);
     std::string getXML(std::string name);
      std::string sendChange(std::string name, int version, std::string cell, std::string content, std::string length);
-    bool makeChange(std::string name, int version, std::string cell, std::string content, std::string length);
+    int makeChange(std::string name, int version, std::string cell, std::string content, std::string length);
+    std::pair<std::string, std::string> undo(session* session, std::string spreadsheetname, std::string version);
 
   
   private:
@@ -68,6 +70,7 @@ public:
   {
     ser = server;
     ableToLeave = true;
+    std::cout << "Session associated with server: "<< &server << std::endl;
   }
 
   tcp::socket& socket()
@@ -267,8 +270,8 @@ private:
           content += data_[i];
         }
       
-      
-      if(ser->makeChange(name, atoi(version.c_str()), cell, content, length))
+      int change = ser->makeChange(name, atoi(version.c_str()), cell, content, length);
+      if(change == 1)
       {
         std::ostringstream mess;
         mess << "CHANGE OK\nName:" << name << "\nVersion:" << atoi(version.c_str())+1 << "\n";
@@ -277,18 +280,79 @@ private:
         ser->sendChange(name, atoi(version.c_str())+1, cell, content, length);
         //std::cout << "change ok"<< std::endl;
       }
-      else
+      else if(change == 0)
       {
-        mess = "CHANGE FAIL";
-        sendMessage(mess, mess.size());
+        std::ostringstream mess;
+        mess << "CHANGE FAIL\nName:" << name << "\nThe change failed.\n";
+        std::string mess2 = mess.str();
+        sendMessage(mess2, mess2.size());
         //std::cout << "change fail "<< std::endl;
       }
+      else if(change == -1)
+        //version problem
+      {
+        std::ostringstream mess;
+        mess << "CHANGE WAIT\nName:" << name << "\nVersion:" << atoi(version.c_str()) << "\n";
+        std::string mess2 = mess.str();
+        sendMessage(mess2, mess2.size());
       }
+
+      }
+
+
       //UNDO MESSAGE
       else if (data_[1] == 'N')
       {
-        mess = "Undo has been called";
-        sendMessage(mess, mess.size());
+        std::string name = "";
+        std::string version = "";
+        int startpassfor = 0;
+
+        for(int i = 10; i <= bytes_transferred; i++)
+        {
+          if(data_[i] == '\n')
+            break;
+          name += data_[i];
+          startpassfor = i;
+        }
+
+        for(int i = startpassfor + 10; i <= bytes_transferred; i++)
+        {
+          if(data_[i] == '\n')
+            break;
+          version += data_[i];  
+        }
+        std::cout << "name is  : "<<name << "   version is: " << version <<std::endl;
+
+        std::pair<std::string, std::string> change = ser->undo(this, name, version);
+        if(change.first == "fail")
+        {
+          std::ostringstream mess;
+          mess << "UNDO FAIL\nName:" << name << "\nUndo failed.\n";
+          std::string mess2 = mess.str();
+          sendMessage(mess2, mess2.size());
+
+        }
+        else if(change.first == "wait")
+        {
+          std::ostringstream mess;
+          mess << "UNDO WAIT\nName:" << name << "\nVersion:" << version<< "\n";
+          std::string mess2 = mess.str();
+          sendMessage(mess2, mess2.size());
+        }
+        else if(change.first == "end")
+        {
+          std::ostringstream mess;
+          mess << "UNDO END\nName:" << name << "\nVersion:" << version<< "\n";
+          std::string mess2 = mess.str();
+          sendMessage(mess2, mess2.size());
+        }
+        else
+        {
+          std::ostringstream mess;
+          mess << "UNDO OK\nName:" << name << "\nVersion:" << atoi(version.c_str()) + 1  << "\nCell:" << change.first << "\nLength:" << change.second.size() <<"\n" << change.second << "\n";
+          std::string mess2 = mess.str();
+          sendMessage(mess2, mess2.size());
+        }
       }
       //SAVE MESSAGE
       else if (data_[1] == 'A')
@@ -369,6 +433,7 @@ public:
   std::string password;
   std::vector<session*> sessions;
   std::map<std::string, std::string> cells;
+  std::stack< std::pair<std::string, std::string> > undoStack;
   int version;
 
   
@@ -417,8 +482,11 @@ private:
     }
     if(!found) //create a spreadsheet
     {
+      std::cout << "Before adding " << name << "the slist size is " <<  spreadsheets.size() << std::endl;
+      std::cout << "Adding " << name << " to the spreadsheet list" <<std::endl;
       spreadsheet * spr = new spreadsheet(name, password);
       spreadsheets.push_back(*spr);
+      std::cout << "After adding " << name << "the slist size is " <<  spreadsheets.size() << std::endl;
     }
     else
     {
@@ -475,6 +543,7 @@ private:
         std::string filename = "ss/"+ name + ".xml";
         read_xml(filename, pt);
         std::cout << "About to check the password" << std::endl;
+        
         //need to check the password before we link the session
         BOOST_FOREACH(const boost::property_tree::ptree::value_type &v, pt.get_child("spreadsheet")) 
         {
@@ -557,8 +626,10 @@ private:
           }
 
           //write the file
-          std::string filename = "SS/" + spreadsheetname + ".xml";
+          std::string filename = "ss/" + spreadsheetname + ".xml";
           write_xml(filename, pt);
+          while(!spreadsheets.at(i).undoStack.empty())
+            spreadsheets.at(i).undoStack.pop();
           
         }
     }
@@ -598,15 +669,15 @@ private:
     {
       if(spreadsheets.at(i).name == name) //spread sheet already exists
         {
-          spreadsheet temp = spreadsheets.at(i);
           
-          for(int i = 0 ; i < temp.sessions.size(); i++)
+          
+          for(int j = 0 ; j < spreadsheets.at(i).sessions.size(); j++)
           {
             std::ostringstream s;
             s << "UPDATE\nName:" << name << "\nVersion:" << version << "\nCell:" << cell <<"\nLength:" <<length << "\n" << content << "\n"; //build the string to return (because of ints).
             std::string mess = s.str();
               
-            temp.sessions.at(i)->sendMessage(mess, mess.size());
+            spreadsheets.at(i).sessions.at(j)->sendMessage(mess, mess.size());
           }
       rtn = "OK";
           
@@ -616,40 +687,76 @@ private:
     return rtn;
   }
   
-  bool server::makeChange(std::string name, int version, std::string cell, std::string content, std::string length)
+  //returns 0 = fail, 1 = ok, -1 = version error
+  int server::makeChange(std::string name, int version, std::string cell, std::string content, std::string length)
   {
     //std::cout << "makechange method "  << cell<< std::endl;
   for(int i = 0; i < spreadsheets.size(); i++)
     {
-      if(spreadsheets.at(i).name == name && spreadsheets.at(i).version == version ) //spread sheet already exists
-        {
+      std::cout << "name is: " << spreadsheets.at(i).name << std::endl;
+    if(spreadsheets.at(i).name == name) //spread sheet already exists
+    {
       //std::cout << "name is: " << spreadsheets.at(i).name << std::endl;
       //std::cout << "version is: " << spreadsheets.at(i).version << std::endl;
+      if(spreadsheets.at(i).version != version)
+      {
+        return -1;
+      }
           
           
-          std::map<std::string, std::string>::iterator it;
-          for(it = spreadsheets.at(i).cells.begin(); it != spreadsheets.at(i).cells.end(); ++it)
-          {
-        //std::cout << "cell names: " << it->first << std::endl;
+      std::map<std::string, std::string>::iterator it;
+      for(it = spreadsheets.at(i).cells.begin(); it != spreadsheets.at(i).cells.end(); ++it)
+      {
         if(it->first == cell)
         {
-          //std::cout << "found cell name: " << it->first << std::endl;
-        it->second = content;
-        spreadsheets.at(i).version++;
-        return true;
-        }
+          if(content == "")
+          {
+            spreadsheets.at(i).cells.erase(cell);
+            return 1;
           }
-          
+          spreadsheets.at(i).undoStack.push(std::pair<std::string, std::string>(it->first, it->second));
+          it->second = content;
+          spreadsheets.at(i).version++;
+          return 1;
+        }
+      }
+          //else insert it
+          spreadsheets.at(i).undoStack.push(std::pair<std::string, std::string>(cell, ""));
           spreadsheets.at(i).cells.insert(std::pair<std::string, std::string>(cell, content));
           spreadsheets.at(i).version++;
-      return true;
-          
-          
-        }
-        return false;
+          return 1;      
+    }
+
     }
     
-  return false;
+  return 0;
+  }
+
+  std::pair<std::string, std::string> server::undo(session* session, std::string spreadsheetname, std::string version)
+  {
+    //loop through the spreadsheets and find the one to work on
+    for(int i = 0; i < spreadsheets.size(); i++)
+    {
+      if(spreadsheets.at(i).name == spreadsheetname) //the right ss, and an undo to do
+      {
+        if(spreadsheets.at(i).undoStack.size() == 0)
+        {
+          return std::pair<std::string, std::string>("end", "end");
+        }
+        if(spreadsheets.at(i).version != atoi(version.c_str()))
+        {
+          return std::pair<std::string, std::string>("wait", "wait");
+        }
+        else
+        {
+          std::pair<std::string, std::string> change = spreadsheets.at(i).undoStack.top();
+          spreadsheets.at(i).undoStack.pop();
+          spreadsheets.at(i).version++;
+          return change;
+        }
+      }
+    }
+    return std::pair<std::string, std::string>("fail", "fail");
   }
 
   void server::start_accept()
