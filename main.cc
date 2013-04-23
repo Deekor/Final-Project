@@ -607,6 +607,13 @@ private:
       if(spreadsheets.at(i).name == spreadsheetname) //spread sheet already exists
         {
           std::map<std::string, std::string>::iterator it;
+
+          //the sreadsheet to save is empty
+          if(spreadsheets.at(i).cells.empty())
+          {
+              pt.put("spreadsheet.meta.password", spreadsheets.at(i).password);
+          }
+
           for(it=spreadsheets.at(i).cells.begin(); it!=spreadsheets.at(i).cells.end(); ++it)
           {
             boost::property_tree::ptree pt1;
